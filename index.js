@@ -1,4 +1,7 @@
+require('dotenv').config()
 const express = require('express')
+const Person = require('./models/person.js')
+
 const cors = require('cors')
 
 const app = express();
@@ -6,58 +9,35 @@ app.use(cors())
 app.use(express.static('build'))
 app.use(express.json())
 
-let persons =[
-  { 
-    "id": 1,
-    "name": "Arto Hellas", 
-    "number": "040-123456"
-  },
-  { 
-    "id": 2,
-    "name": "Ada Lovelace", 
-    "number": "39-44-5323523"
-  },
-  { 
-    "id": 3,
-    "name": "Dan Abramov", 
-    "number": "12-43-234345"
-  },
-  { 
-    "id": 4,
-    "name": "Mary Poppendieck", 
-    "number": "39-23-6423122"
-  }
-]
-
 app.get('/api/persons', (request, response)=>{
-  return response.send(persons)
+  Person.find({}).then(persons=>{
+    response.json(persons)
+  })
 })
 
 app.get('/info', (request, response)=> {
-  response.send(`Phonebook has info for ${persons.length} people <br/><br/> ${new Date()}`)
+  Person.find({}).then(persons=> {
+    response.send(`Phonebook has info for ${persons.length} people <br/><br/> ${new Date()}`)
+  }) 
 })
 
 app.get('/', (request, response)=> {
   response.send('<h1>Hello World!</h1>')
 })
 
-app.get('/api/persons/:id', (request, response)=> {
-  const findId = request.params.id
-  const returnedPerson = persons.find(person => Number(person.id) === Number(findId))
+app.get('/api/persons/:id', (request, response, next)=> {
 
-  if(returnedPerson){
-    response.json(returnedPerson)
-  }else{
-    response.status(404).json({error: 'cannot find'})
-  }
+  Person.findById(request.params.id)
+    .then(returnedPerson=>{
+      if(returnedPerson){
+        response.json(returnedPerson)
+      }else{
+        response.status(404).json({error: 'cannot find'})
+      }
+    })
+    .catch(error => next(error))
+  
 })
-
-const generateId = () => {
-  const MaxId = persons.length > 0
-    ? Math.max(...persons.map(n=>n.id)) 
-    : 0
-  return MaxId+1
-}
 
 app.post('/api/persons', (request, response)=> {
   const body = request.body
@@ -66,31 +46,49 @@ app.post('/api/persons', (request, response)=> {
     return response.status(400).json({error: 'Name cannot be empty'})
   }
 
-  if(persons.find(person => person.name === body.name)){
-    return response.status(400).json({error: 'Name must be unique'})
-  }
-
   if(!body.number){
     return response.status(400).json({error: 'Number cannot be empty'})
   }
 
-  const newPerson = {
-    name: body.name,
-    number: body.number,
-    id: generateId()
-  }
+  Person.find({})
+    .then(persons => {
+      if(persons.find(person => person.name === body.name)){
+        return response.status(400).json({error: 'Name must be unique'})
+      }else{
+        const newPerson = new Person ({
+          name: body.name,
+          number: body.number,
+        })
 
-  console.log(newPerson)
-  persons = persons.concat(newPerson)
+        newPerson.save().then(savedPerson => response.json(savedPerson))
+      }
+    })
 
-  response.status(200).json(newPerson)
 })
 
-app.delete('/api/persons/:id', (request, response)=>{
-  const findId = request.params.id
-  const persons = persons.filter(person => Number(person.id)!==Number(findId))
-  
-  response.status(204).end()
+app.put('/api/persons/:id', (request, response, next) => {
+  const body = request.body
+
+  const updatePerson = {
+    name: body.name,
+    number: body.number
+  }
+
+  Person.findByIdAndUpdate(body.id, updatePerson, {new:true})
+    .then(updatePerson => {
+      response.json(updatePerson)
+    })
+    .catch(error => next(error))
+})
+
+app.delete('/api/persons/:id', (request, response, next)=>{
+
+  Person.findByIdAndRemove(request.params.id)
+    .then(result=>{
+      response.status(204).end()
+    })
+    .catch(error => next(error))
+
 })
 
 const unknownEndpoint = (request, response) => {
@@ -98,6 +96,18 @@ const unknownEndpoint = (request, response) => {
 }
 
 app.use(unknownEndpoint)
+
+const errorHandler = (error, request, response, next) => {
+  console.log(error.message)
+
+  if(error.message === 'CastError'){
+    return response.status(400).send({error: 'malformatted id'})
+  }
+
+  next(error)
+}
+
+app.use(errorHandler)
 
 const PORT = process.env.PORT || 3001
 
