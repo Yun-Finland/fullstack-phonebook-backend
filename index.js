@@ -1,19 +1,30 @@
-require('dotenv').config()
+const config = require('./utils/config')
 const express = require('express')
+const app = express();
+const cors = require('cors')
+const mongoose = require('mongoose')
+
+const middleware = require('./utils/middleware')
+const personsRouter = require('./controllers/persons')
 const Person = require('./models/person.js')
 
-const cors = require('cors')
+const url = config.MONGODB_URI
 
-const app = express();
+console.log('connecting to ', url)
+
+mongoose.connect(url, {useNewUrlParser: true, useUnifiedTopology: true })
+.then(result => {
+  console.log('connected to MongoDB')
+})
+.catch((error) => {
+  console.log('error connecting to MongoDB:', error.message)
+})
+
 app.use(cors())
 app.use(express.static('build'))
 app.use(express.json())
 
-app.get('/api/persons', (request, response)=>{
-  Person.find({}).then(persons=>{
-    response.json(persons)
-  })
-})
+app.use('/api/persons', personsRouter)
 
 app.get('/info', (request, response)=> {
   Person.find({}).then(persons=> {
@@ -25,92 +36,10 @@ app.get('/', (request, response)=> {
   response.send('<h1>Hello World!</h1>')
 })
 
-app.get('/api/persons/:id', (request, response, next)=> {
+app.use(middleware.unknownEndpoint)
 
-  Person.findById(request.params.id)
-    .then(returnedPerson=>{
-      if(returnedPerson){
-        response.json(returnedPerson)
-      }else{
-        response.status(404).json({error: 'cannot find'})
-      }
-    })
-    .catch(error => next(error))
-  
-})
+app.use(middleware.errorHandler)
 
-app.post('/api/persons', (request, response)=> {
-  const body = request.body
-
-  if(!body.name){
-    return response.status(400).json({error: 'Name cannot be empty'})
-  }
-
-  if(!body.number){
-    return response.status(400).json({error: 'Number cannot be empty'})
-  }
-
-  Person.find({})
-    .then(persons => {
-      if(persons.find(person => person.name === body.name)){
-        return response.status(400).json({error: 'Name must be unique'})
-      }else{
-        const newPerson = new Person ({
-          name: body.name,
-          number: body.number,
-        })
-
-        newPerson.save().then(savedPerson => response.json(savedPerson))
-      }
-    })
-
-})
-
-app.put('/api/persons/:id', (request, response, next) => {
-  const body = request.body
-
-  const updatePerson = {
-    name: body.name,
-    number: body.number
-  }
-
-  Person.findByIdAndUpdate(body.id, updatePerson, {new:true})
-    .then(updatePerson => {
-      response.json(updatePerson)
-    })
-    .catch(error => next(error))
-})
-
-app.delete('/api/persons/:id', (request, response, next)=>{
-
-  Person.findByIdAndRemove(request.params.id)
-    .then(result=>{
-      response.status(204).end()
-    })
-    .catch(error => next(error))
-
-})
-
-const unknownEndpoint = (request, response) => {
-  response.status(400).send({error: 'unknown endpoint'})
-}
-
-app.use(unknownEndpoint)
-
-const errorHandler = (error, request, response, next) => {
-  console.log(error.message)
-
-  if(error.message === 'CastError'){
-    return response.status(400).send({error: 'malformatted id'})
-  }
-
-  next(error)
-}
-
-app.use(errorHandler)
-
-const PORT = process.env.PORT || 3001
-
-app.listen(PORT, ()=>{
-  console.log(`Listen to the PORT ${PORT}`)
+app.listen(config.PORT, ()=>{
+  console.log(`Listen to the PORT ${config.PORT}`)
 })
